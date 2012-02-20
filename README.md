@@ -1,8 +1,8 @@
-## s3pipe
+# s3pipe
 
 Command line tool to upload data to Amazon S3 via a pipe
 
-### Usage in tar
+## Usage with tar
 
 create a wrapper script `mytarfilter`:
 
