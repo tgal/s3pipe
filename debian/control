@@ -8,5 +8,5 @@ Homepage: https://github.com/tgal/s3pipe
 
 Package: s3pipe
 Architecture: all
-Depends: python-support
+Depends: python-support, python-boto, python-argparse
 Description: Command line tool to upload data to Amazon S3 via a pipe
