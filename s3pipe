@@ -1,0 +1,80 @@
+#!/usr/bin/python
+#
+# Author: Tobias Galitzien <tg@trusttheadmin.de>
+# Copyright (c) 2012 Tobias Galitzien <tg@trusttheadmin.de>
+# Berlin, Germany
+#
+
+import sys
+import boto.s3.connection
+import argparse
+import cStringIO
+import hashlib
+
+MB = 1024 * 1024
+
+def bailout(msg):
+  sys.stderr.write(msg)
+  sys.exit(-1)
+
+# parse command line
+parser = argparse.ArgumentParser(description = 'pipe streaming to s3 buckets')
+parser.add_argument('-b','--bucket', required = True)
+parser.add_argument('-k','--key', required = True)
+parser.add_argument('-c','--chunksize', type = int, default = 5, help = 'the chunk size in MB, default 5', metavar = 'n')
+parser.add_argument('-q','--quiet', action = 'store_true', help = 'be quiet', dest = 'q')
+args = parser.parse_args()
+
+# connect to s3
+try:
+  s3 = boto.s3.connection.S3Connection()
+except boto.exception.S3ResponseError, e:
+  bailout("cannot connect to S3: %s\n" % e.code)
+
+# open bucket or create it if necessary
+try:
+  bucket = s3.get_bucket(args.bucket)
+except boto.exception.S3ResponseError, e:
+  if e.code == 'NoSuchBucket':
+    if not args.q: sys.stderr.write("creating bucket %s\n" % args.bucket)
+    try:
+      bucket = s3.create_bucket(args.bucket)
+    except boto.exception.S3ResponseError, e:
+      bailout("cannot create bucket %s: %s\n" % (args.bucket,e.code))
+  else:
+    bailout("cannot access bucket %s: %s\n" % (args.bucket,e.code))
+
+# start the multipart upload
+if not args.q: sys.stderr.write("initiating multipart upload to S3 bucket %s, key %s\n" % (args.bucket, args.key))
+
+try:
+  mp = bucket.initiate_multipart_upload(args.key)
+except boto.exception.S3ResponseError, e:
+  bailout("cannot initiate multipart upload: %s\n" % e.code)
+
+parts = list()
+chunksize = args.chunksize * MB
+buf = str(chunksize)
+
+while True:
+  part_num = len(parts)+1
+  if not args.q: sys.stderr.write("part %d: going to read %.1f MB from stdin\n" % ( part_num, float(chunksize)/MB))
+  buf = sys.stdin.read(chunksize)
+  part_size = len(buf)
+  if not args.q: sys.stderr.write("part %d: %.1f MB (%d Bytes) read\n" % (part_num, float(part_size)/MB, part_size))
+  parts.append(hashlib.md5(buf).hexdigest())
+  sio = cStringIO.StringIO(buf)
+  res = mp.upload_part_from_file(sio,part_num)
+  sio.close()
+  if part_size < chunksize: break 
+
+# check md5 sums for parts
+for part in mp:
+  my_md5    = parts[part.part_number-1]
+  their_md5 = part.etag[1:-1]
+  if my_md5 != their_md5:
+    mp.cancel_upload()
+    bailout("MD5 error, upload canceled\n")
+
+mp.complete_upload()
+if not args.q: sys.stderr.write("ok\n")
