@@ -6,8 +6,8 @@ Command line tool to upload data to Amazon S3 via a pipe
 
 create a wrapper script `mytarfilter`:
 
-`#!/bin/bash
-gpg -c --passphrase verysecret | /path/to/s3pipe -b my-bucket -k filename.tar.gpg`
+> #!/bin/bash
+> gpg -c --passphrase verysecret | /path/to/s3pipe -b my-bucket -k filename.tar.gpg
 
 then use tar:
 
