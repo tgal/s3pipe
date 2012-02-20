@@ -1,0 +1,12 @@
+Source: s3pipe
+Section: admin
+Priority: extra
+Maintainer: Tobias Galitzien <tg@trusttheadmin.de>
+Build-Depends: debhelper (>= 7.0.50~)
+Standards-Version: 3.8.4
+Homepage: https://github.com/tgal/s3pipe
+
+Package: s3pipe
+Architecture: all
+Depends: python-support
+Description: Command line tool to upload data to Amazon S3 via a pipe
