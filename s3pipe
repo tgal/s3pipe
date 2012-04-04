@@ -21,8 +21,9 @@ def bailout(msg):
 parser = argparse.ArgumentParser(description = 'pipe streaming to s3 buckets')
 parser.add_argument('-b','--bucket', required = True)
 parser.add_argument('-k','--key', required = True)
-parser.add_argument('-c','--chunksize', type = int, default = 5, help = 'the chunk size in MB, default 5', metavar = 'n')
-parser.add_argument('-q','--quiet', action = 'store_true', help = 'be quiet', dest = 'q')
+parser.add_argument('-d','--download', action = 'store_true', help = 'download mode, default is upload')
+parser.add_argument('-c','--chunksize', type = int, default = 5, help = 'the upload chunk size in MB, default 5')
+parser.add_argument('-q','--quiet', action = 'store_true', help = 'be quiet')
 args = parser.parse_args()
 
 # connect to s3
@@ -36,7 +37,9 @@ try:
   bucket = s3.get_bucket(args.bucket)
 except boto.exception.S3ResponseError, e:
   if e.code == 'NoSuchBucket':
-    if not args.q: sys.stderr.write("creating bucket %s\n" % args.bucket)
+    if args.download:
+      bailout("bucket %s not found\n" % args.bucket)
+    if not args.quiet: sys.stderr.write("creating bucket %s\n" % args.bucket)
     try:
       bucket = s3.create_bucket(args.bucket)
     except boto.exception.S3ResponseError, e:
@@ -44,24 +47,47 @@ except boto.exception.S3ResponseError, e:
   else:
     bailout("cannot access bucket %s: %s\n" % (args.bucket,e.code))
 
-# start the multipart upload
-if not args.q: sys.stderr.write("initiating multipart upload to S3 bucket %s, key %s\n" % (args.bucket, args.key))
+parts = list()
+chunksize = args.chunksize * MB
+buf = str(chunksize)
+sum = 0
+
+# handle download mode
+
+if args.download:
+  key = bucket.get_key(args.key)
+  if not key:
+    bailout("cannot find key %s in bucket %s\n" % (args.key, args.bucket))
+  if not args.quiet: sys.stderr.write("download key %s from bucket %s\n" % (args.key, args.bucket))
+  while True:
+    part_num = len(parts)+1
+    if not args.quiet: sys.stderr.write("part %d: going to read %.1f MB from key %s\n" % ( part_num, float(chunksize)/MB, args.key))
+    buf = key.read(chunksize)
+    part_size = len(buf)
+    sum += part_size
+    if not args.quiet: sys.stderr.write("part %d: %.1f MB (%d bytes) read, sum: %.1f MB (%d bytes)\n" % (part_num, float(part_size)/MB, part_size, float(sum)/MB, sum))
+    sys.stdout.write(buf)
+    if part_size < chunksize: break 
+  key.close()
+  sys.exit()
+
+
+# handle upload mode
+
+if not args.quiet: sys.stderr.write("initiating multipart upload to S3 bucket %s, key %s\n" % (args.bucket, args.key))
 
 try:
   mp = bucket.initiate_multipart_upload(args.key)
 except boto.exception.S3ResponseError, e:
   bailout("cannot initiate multipart upload: %s\n" % e.code)
 
-parts = list()
-chunksize = args.chunksize * MB
-buf = str(chunksize)
-
 while True:
   part_num = len(parts)+1
-  if not args.q: sys.stderr.write("part %d: going to read %.1f MB from stdin\n" % ( part_num, float(chunksize)/MB))
+  if not args.quiet: sys.stderr.write("part %d: going to read %.1f MB from stdin\n" % ( part_num, float(chunksize)/MB))
   buf = sys.stdin.read(chunksize)
   part_size = len(buf)
-  if not args.q: sys.stderr.write("part %d: %.1f MB (%d Bytes) read\n" % (part_num, float(part_size)/MB, part_size))
+  sum += part_size
+  if not args.quiet: sys.stderr.write("part %d: %.1f MB (%d bytes) read, sum: %.1f MB (%d bytes)\n" % (part_num, float(part_size)/MB, part_size, float(sum)/MB, sum))
   parts.append(hashlib.md5(buf).hexdigest())
   sio = cStringIO.StringIO(buf)
   res = mp.upload_part_from_file(sio,part_num)
@@ -77,4 +103,4 @@ for part in mp:
     bailout("MD5 error, upload canceled\n")
 
 mp.complete_upload()
-if not args.q: sys.stderr.write("ok\n")
+if not args.quiet: sys.stderr.write("ok\n")
