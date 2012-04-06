@@ -1,3 +1,11 @@
+s3pipe (4) unstable; urgency=low
+
+  * include boto debug level
+  * option to change endpoint
+  * check md5 after each part
+
+ -- Tobias Galitzien <tg@trusttheadmin.de>  Fri, 06 Apr 2012 15:16:59 +0200
+
 s3pipe (3) unstable; urgency=low
 
   * included download mode
