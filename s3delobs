@@ -1,0 +1,79 @@
+#!/usr/bin/python
+#
+# Author: Tobias Galitzien <tg@trusttheadmin.de>
+# Copyright (c) 2012 Tobias Galitzien <tg@trusttheadmin.de>
+# Berlin, Germany
+#
+
+import sys
+import boto.s3.connection
+import argparse
+import time, datetime, dateutil.parser
+
+now = datetime.datetime.utcnow()
+
+def bailout(msg):
+  sys.stderr.write(msg)
+  sys.exit(-1)
+
+def is_obsolete(dt):
+  try:
+    age = (now-dt).days
+    if age <= 7: return False
+    if age < 35 and dt.day % 7 == 0: return False
+    return True
+  except:
+    return False
+
+def determine_filedate(key, pattern=None):
+  if pattern:
+    try:
+      t = time.strptime(key.name, pattern)
+      return datetime.datetime(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
+    except ValueError:
+      return None
+  else:
+    return dateutil.parser.parse(key.last_modified).replace(tzinfo=None)
+
+# parse command line
+parser = argparse.ArgumentParser(description = 'delete obsolete archives on s3')
+parser.add_argument('-b','--bucket', required = True)
+parser.add_argument('-p','--pattern', help = 'use strptime() pattern to determine file date')
+parser.add_argument('-m','--mtime', action = 'store_true', help = 'use mtime for file date')
+parser.add_argument('-v','--verbose', type = int, default = 0, help = 'set boto debug level')
+parser.add_argument('-e','--endpoint', default = 's3.amazonaws.com', help = 'set s3 endpoint (s3-eu-west-1.amazonaws.com for EU buckets, see http://docs.amazonwebservices.com/general/latest/gr/rande.html#s3_region)')
+parser.add_argument('-d','--dryrun', action = 'store_true', help = 'don\'t actually delete anything, just show what would be done')
+args = parser.parse_args()
+
+# check mode
+if not (args.pattern or args.mtime):
+  print "need either a pattern or the mtime switch"
+  parser.print_help()
+  sys.exit()
+
+# connect to s3
+try:
+  s3 = boto.s3.connection.S3Connection(debug = args.verbose, host = args.endpoint)
+except boto.exception.S3ResponseError, e:
+  bailout("cannot connect to S3: %s\n" % e.code)
+
+# open bucket
+try:
+  bucket = s3.get_bucket(args.bucket)
+except boto.exception.S3ResponseError, e:
+  bailout("cannot access bucket %s: %s\n" % (args.bucket,e.code))
+
+for k in bucket.list():
+  n = k.name
+  dt = determine_filedate(k, args.pattern)
+  if dt:
+    if is_obsolete(dt):
+      if args.dryrun:
+        print 'would delete %s, but dryrun mode' % n
+      else:
+        if args.verbose:
+          print 'deleting %s' % n
+        k.delete()
+  else:
+    if args.verbose:
+      print 'cannot parse %s' % n
